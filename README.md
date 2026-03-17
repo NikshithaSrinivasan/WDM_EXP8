@@ -1,5 +1,5 @@
 ### EX8 Web Scraping On E-commerce platform using BeautifulSoup
-### DATE: 17-03-2026
+### DATE: 17/03/2026
 ### AIM: To perform Web Scraping on Amazon using (beautifulsoup) Python.
 ### Description: 
 <div align = "justify">
@@ -32,65 +32,171 @@ import re
 import matplotlib.pyplot as plt
 
 def convert_price_to_float(price):
+    """Convert price string like '₹1,299.00' → 1299.0"""
     price = re.sub(r'[^\d.]', '', price)
-    return float(price)
+    parts = price.split('.')
+    if len(parts) > 1:
+        price = parts[0] + '.' + ''.join(parts[1:])
+    return float(price) if price else 0.0
 
-def get_products(search_query):
-    url = "https://books.toscrape.com/"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
+def get_amazon_products(search_query):
+    base_url = 'https://www.amazon.in'
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/114.0.0.0 Safari/537.36",
+        "Accept-Language": "en-IN,en;q=0.9",
+        "Referer": "https://www.google.com/",
+        "Connection": "keep-alive"
+    }
 
+    search_query = search_query.replace(' ', '+')
+    url = f'{base_url}/s?k={search_query}'
+
+    session = requests.Session()
+    response = session.get(url, headers=headers)
     products_data = []
 
-    books = soup.find_all('article', class_='product_pod')
-    for book in books:
-        name = book.h3.a['title']
-        price = book.find('p', class_='price_color').text
-        availability = book.find('p', class_='instock availability').text.strip()
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.content, 'html.parser')
+        product_elements = soup.select('div.s-main-slot div[data-component-type="s-search-result"]')
 
- 
-        if search_query.lower() in name.lower():
+        for product in product_elements:
+            # Product title
+            title_elem = product.select_one('h2 span')
+            title = title_elem.text.strip() if title_elem else 'No Title'
+
+            # Current price
+            price_container = product.select_one('span.a-price')
+            if price_container:
+                price_whole = price_container.select_one('span.a-price-whole')
+                price_fraction = price_container.select_one('span.a-price-fraction')
+                if price_whole and price_fraction:
+                    price = f"{price_whole.text.strip()}.{price_fraction.text.strip()}"
+                elif price_whole:
+                    price = price_whole.text.strip()
+                else:
+                    price = '0'
+            else:
+                price = '0'
+
+            # List price / Original price for discount calculation
+            list_price_elem = product.select_one('span.a-price.a-text-price span.a-offscreen')
+            list_price = convert_price_to_float(list_price_elem.text) if list_price_elem else convert_price_to_float(price)
+
+            current_price = convert_price_to_float(price)
+            # Discount percentage
+            discount = round(((list_price - current_price) / list_price) * 100, 2) if list_price > current_price else 0.0
+
             products_data.append({
-                'Product': name,
-                'Price': price,
-                'Availability': availability
+                'Product': title,
+                'Price': current_price,
+                'Discount (%)': discount
             })
 
-    return sorted(products_data, key=lambda x: convert_price_to_float(x['Price']))
+            print(f'Product: {title}\nPrice: ₹{current_price}\nDiscount: {discount}%\n---')
 
+    else:
+        print(f'Failed to fetch Amazon page: {response.status_code}')
 
-search_query = input("Enter product to search: ")
+    # Sort by price ascending
+    return sorted(products_data, key=lambda x: x['Price'])
 
-products = get_products(search_query)
+# Main
+search_query = input('Enter product to search on Amazon: ')
+products = get_amazon_products(search_query)
 
-
+# Plotting
 if products:
-    print("\nSearch Results:\n")
-    for i, product in enumerate(products, start=1):
-        print(f"{i}. Product Name : {product['Product']}")
-        print(f"   Price        : {product['Price']}")
-        print(f"   Availability : {product['Availability']}")
-        print("-" * 50)
+    product_names = [p['Product'][:30] + '...' if len(p['Product']) > 30 else p['Product'] for p in products]
+    product_prices = [p['Price'] for p in products]
+    product_discounts = [p['Discount (%)'] for p in products]
 
-    
-    product_names = [
-        p['Product'][:30] if len(p['Product']) > 30 else p['Product']
-        for p in products
-    ]
-    product_prices = [convert_price_to_float(p['Price']) for p in products]
-
-    plt.figure(figsize=(10, 6))
-    plt.barh(product_names, product_prices)
-    plt.xlabel("Price")
-    plt.ylabel("Product")
-    plt.title(f"Search Results for '{search_query}' (Ascending Order)")
+    plt.figure(figsize=(12, 8))
+    bars = plt.barh(range(len(product_prices)), product_prices, color='skyblue')
+    plt.xlabel('Price (₹)')
+    plt.ylabel('Product')
+    plt.title(f'Products, Prices & Discounts on Amazon for "{search_query}"')
+    plt.yticks(range(len(product_prices)), [f"{n} ({d}%)" for n, d in zip(product_names, product_discounts)])
     plt.tight_layout()
     plt.show()
 else:
-    print("No products found.")
+    print('No products found.')
+
 ```
+
 ### Output:
+
+```
+Enter product to search on Amazon: refrigerator
+Samsung 183 L, 5 Star, Digital Inverter, Direct-Cool Single Door Refrigerator (RR20D2825HV/NL, Himalaya Poppy Blue, Base Stand Drawer)
+Price: 16990.0
+Discount: 26.13 %
+------
+Whirlpool 184 L 2 Star Direct-Cool Single Door Refrigerator (205 WDE CLS 2S SAPPHIRE BLUE-Y, Blue, 2026 Model)
+Price: 11990.0
+Discount: 32.45 %
+------
+Samsung 236 L, 2 Star, Digital Inverter, Frost Free Double Door Refrigerator (RT40H28W2QHL, Gray Silver, 2026 Model)
+Price: 24990.0
+Discount: 21.9 %
+------
+Whirlpool 192 L 4 Star Icemagic Powercool Direct-Cool Single Door Refrigerator with Base Drawer (215 IMPC ROY 4S SAPPHIRE PEONY-Y, Blue, 2026 Model)
+Price: 15490.0
+Discount: 28.78 %
+------
+Whirlpool 192 L 3 Star Vitamagic PRO Frost Free Direct-Cool Single Door Refrigerator (215 VMPRO PRM 3S RADIANT STEEL-Y, Silver, Auto Defrost Technology, 2026 Model)
+Price: 15490.0
+Discount: 26.06 %
+------
+Haier 205L 5Star Direct Cool Single Door Refrigerator | Inverter Compressor | Wide Freezer Space | Bigger Ice Tray | Longer Cooling Retention | Easy Clean Back (HED-215MRB-N, Marine Rose, Base Stand)
+Price: 16990.0
+Discount: 38.64 %
+------
+Samsung 223 L, 3 Star, Digital Inverter, Direct-Cool Single Door Refrigerator (RR24H2723RZ/NL, Midnight Blossom Red, Single Touch Defrost, 2026 Model)
+Price: 18690.0
+Discount: 25.24 %
+------
+Samsung 183 L, 4 Star, Digital Inverter, Direct-Cool Single Door Refrigerator (RR20C1824HV/HL, Himalaya poppy Blue, Base Stand Drawer)
+Price: 16890.0
+Discount: 23.22 %
+------
+Samsung 236 L, 3 Star, Convertible, Digital Inverter with Display Frost Free Double Door Refrigerator (RT28C3733S8/HL, Silver, Elegant Inox)
+Price: 25490.0
+Discount: 37.81 %
+------
+Samsung 183 L, 4 Star, Digital Inverter, Direct-Cool Single Door Refrigerator (RR20H28249U/NL, Paradise Bloom Blue, Base Stand Drawer, Single Touch Defrost, 2026 Model)
+Price: 16990.0
+Discount: 22.77 %
+------
+Godrej 180L 1Star Advanced Capillary Technology| Jumbo Vegetable Tray| Wired Shelves| 2.25L Bottle Space| Wide Shelf Space| Direct Cool Single Door Refrigerator (RD EDGE 205AN WRF PP BL, Pep Blue)
+Price: 11970.0
+Discount: 30.37 %
+------
+Samsung 236 L, 3 Star, Digital Inverter, Frost Free Double Door Refrigerator (RT28C3053S8/HL, Silver, Elegant Inox)
+Price: 24990.0
+Discount: 34.22 %
+------
+Whirlpool 207 L 5 Star Icemagic Pro Inverter Direct-Cool Single Door Refrigerator (230 IMPRO ROY 5S INV SAPPHIRE PEONY-Y, Blue, 2026 Model)
+Price: 18490.0
+Discount: 32.76 %
+------
+Godrej 183 L 2 Star| Farm Fresh Crisper Technology| Turbo Cooling Technology | Toughened Glass Shelved | Jumbo Vegetable Tray | Direct Cool Single Door Refrigerator (RD R190BN THF BR BL, Berry Blue)
+Price: 12990.0
+Discount: 34.36 %
+------
+Whirlpool 184 L 2 Star Direct-Cool Single Door Refrigerator (205 WDE CLS 2S SHERRY WINE-Y, Red, 2026 Model)
+Price: 11990.0
+Discount: 32.45 %
+------
+Whirlpool 184 L 2 Star Direct-Cool Single Door Refrigerator (205 WDE PRM 2S SAPPHIRE SERENA-Z)
+Price: 12990.0
+Discount: 26.24 %
+------
+```
+
+<img width="1044" height="433" alt="Screenshot 2026-03-14 132827" src="https://github.com/user-attachments/assets/687789de-3266-4a92-8d9e-6a6a26d8f876" />
 
 
 ### Result:
-Thus,Web scrapping has been executed sucessfully.
+ To perform Web Scraping on Amazon using (beautifulsoup) Python using implemented successfully.
